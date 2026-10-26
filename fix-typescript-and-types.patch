@@ -1,0 +1,419 @@
+From 297041ef91439f8007c11c4917b4ac1b80730894 Mon Sep 17 00:00:00 2001
+From: alqadasif2-cloud <alqadasif2@gmail.com>
+Date: Mon, 26 Oct 2026 21:43:32 +0000
+Subject: [PATCH] fix(types): add missing wallet types and formatters, fix
+ reduce accumulator type
+
+---
+ src/components/BalanceCard.tsx |   2 +-
+ src/components/ChatModal.tsx   |   2 +-
+ src/services/walletDb.ts       |  20 +++--
+ src/types/wallet.ts            | 148 ++++++++++++++++++++++++++++++++
+ src/utils/formatters.ts        | 151 +++++++++++++++++++++++++++++++++
+ 5 files changed, 313 insertions(+), 10 deletions(-)
+ create mode 100644 src/types/wallet.ts
+ create mode 100644 src/utils/formatters.ts
+
+diff --git a/src/components/BalanceCard.tsx b/src/components/BalanceCard.tsx
+index f522cac..2103350 100644
+--- a/src/components/BalanceCard.tsx
++++ b/src/components/BalanceCard.tsx
+@@ -31,7 +31,7 @@ export const BalanceCard: React.FC<BalanceCardProps> = ({
+   const lockedBalance = wallet?.lockedDemoBalance ?? 0;
+ 
+   // Real-time calculation of portfolio 24h performance based on live asset changes
+-  const changeAmount = wallet?.assets?.reduce((sum, a) => {
++  const changeAmount = wallet?.assets?.reduce((sum: number, a) => {
+     return sum + (a.usdValue * (a.change24h / 100));
+   }, 0) ?? 0;
+   const changePercent = totalBalance > 0 ? (changeAmount / totalBalance) * 100 : 0;
+diff --git a/src/components/ChatModal.tsx b/src/components/ChatModal.tsx
+index 3ecf255..ed4ec4a 100644
+--- a/src/components/ChatModal.tsx
++++ b/src/components/ChatModal.tsx
+@@ -100,7 +100,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
+   const allUsers = WalletDatabase.getUsers().filter(u => u.userId !== currentUser.userId);
+   const filteredUsers = allUsers.filter(u => 
+     u.username.toLowerCase().includes(searchUserQuery.toLowerCase()) ||
+-    u.displayName.toLowerCase().includes(searchUserQuery.toLowerCase()) ||
++    (u.displayName || '').toLowerCase().includes(searchUserQuery.toLowerCase()) ||
+     u.demoAddress.toLowerCase().includes(searchUserQuery.toLowerCase())
+   );
+ 
+diff --git a/src/services/walletDb.ts b/src/services/walletDb.ts
+index e835b03..6ffd505 100644
+--- a/src/services/walletDb.ts
++++ b/src/services/walletDb.ts
+@@ -982,7 +982,7 @@ export class WalletDatabase {
+       this.saveUsers(users);
+ 
+       const wallets = this.getWallets().filter(w => w.walletId !== wallet!.walletId);
+-      wallets.push(wallet);
++      wallets.push(wallet!);
+       this.saveWallets(wallets);
+ 
+       await WalletCloudService.saveUserToCloud(user, wallet);
+@@ -1110,8 +1110,9 @@ export class WalletDatabase {
+     }
+ 
+     // If recipient wallet isn't in local storage, initialize it
++    let targetRecipientWallet: Wallet;
+     if (!recipientWallet) {
+-      recipientWallet = {
++      targetRecipientWallet = {
+         walletId: recipient.walletId || recipient.userId,
+         ownerUserId: recipient.userId,
+         networkType: 'BEP20',
+@@ -1121,7 +1122,10 @@ export class WalletDatabase {
+         lockedDemoBalance: 0.00,
+         assets: createDefaultAssets(0.00)
+       };
+-      wallets.push(recipientWallet);
++      wallets.push(targetRecipientWallet);
++      recipientWallet = targetRecipientWallet;
++    } else {
++      targetRecipientWallet = recipientWallet;
+     }
+ 
+     // Execute through WalletCloudService
+@@ -1129,7 +1133,7 @@ export class WalletDatabase {
+       sender,
+       senderWallet,
+       recipient,
+-      recipientWallet,
++      recipientWallet: targetRecipientWallet,
+       amount,
+       currency,
+       lockDurationMinutes,
+@@ -1146,13 +1150,13 @@ export class WalletDatabase {
+       senderWallet.assets = createDefaultAssets(senderWallet.totalDemoBalance);
+ 
+       // Update local recipient wallet
+-      recipientWallet.totalDemoBalance = Math.round((recipientWallet.totalDemoBalance + amount) * 100) / 100;
++      targetRecipientWallet.totalDemoBalance = Math.round((targetRecipientWallet.totalDemoBalance + amount) * 100) / 100;
+       if (isLocked) {
+-        recipientWallet.lockedDemoBalance = Math.round((recipientWallet.lockedDemoBalance + amount) * 100) / 100;
++        targetRecipientWallet.lockedDemoBalance = Math.round((targetRecipientWallet.lockedDemoBalance + amount) * 100) / 100;
+       } else {
+-        recipientWallet.availableDemoBalance = Math.round((recipientWallet.availableDemoBalance + amount) * 100) / 100;
++        targetRecipientWallet.availableDemoBalance = Math.round((targetRecipientWallet.availableDemoBalance + amount) * 100) / 100;
+       }
+-      recipientWallet.assets = createDefaultAssets(recipientWallet.totalDemoBalance);
++      targetRecipientWallet.assets = createDefaultAssets(targetRecipientWallet.totalDemoBalance);
+ 
+       this.saveWallets(wallets);
+ 
+diff --git a/src/types/wallet.ts b/src/types/wallet.ts
+new file mode 100644
+index 0000000..2b3751b
+--- /dev/null
++++ b/src/types/wallet.ts
+@@ -0,0 +1,148 @@
++/**
++ * Core Domain Types for Trust Wallet Pro
++ */
++
++export interface CryptoAsset {
++  symbol: string;
++  name: string;
++  nameAr?: string;
++  balance: number;
++  usdPrice: number;
++  usdValue: number;
++  value?: number;
++  change24h: number;
++  bidPrice?: number;
++  askPrice?: number;
++  spread?: number;
++  high24h?: number;
++  low24h?: number;
++  volume24h?: number;
++  isLive?: boolean;
++  network: string;
++  icon?: string;
++}
++
++// Alias for convenience
++export type Asset = CryptoAsset;
++
++export interface User {
++  userId: string;
++  username: string;
++  displayName?: string;
++  role: 'owner' | 'user' | string;
++  accountStatus: 'active' | 'suspended' | string;
++  createdAt: string;
++  lastActivityAt?: string;
++  walletId: string;
++  demoAddress: string;
++  email?: string;
++  password?: string;
++  passwordHash?: string;
++  avatarUrl?: string;
++  isRegistered?: boolean;
++}
++
++export interface Wallet {
++  walletId: string;
++  ownerUserId: string;
++  networkType: 'BEP20' | 'ERC20' | 'TRC20' | string;
++  demoAddress: string;
++  totalDemoBalance: number;
++  availableDemoBalance: number;
++  lockedDemoBalance: number;
++  updatedAt?: string;
++  assets?: CryptoAsset[];
++}
++
++export interface Transaction {
++  transactionId: string;
++  senderUserId: string;
++  senderUsername: string;
++  senderAddress: string;
++  receiverUserId: string;
++  receiverUsername: string;
++  receiverAddress: string;
++  destinationAddress?: string;
++  amount: number;
++  currency: string;
++  network: string;
++  transactionType: 'receive' | 'send' | 'refund' | 'admin_adjustment' | 'lock_release' | string;
++  status: 'completed' | 'locked' | 'refunded' | 'cancelled' | 'rejected' | 'pending' | string;
++  statusTextAr?: string;
++  createdAt: string;
++  lockUntil?: string;
++  lockDurationMinutes?: number;
++  notes?: string;
++  originalTransactionId?: string;
++  formattedTimeAr?: string;
++  refundReason?: string;
++  isSimulated?: boolean;
++  isHistorical?: boolean;
++  networkTxHash?: string;
++  blockNumber?: number;
++}
++
++export interface AdminAuditLog {
++  logId: string;
++  adminUserId: string;
++  adminUsername: string;
++  actionType: string;
++  targetUserId: string;
++  targetUsername: string;
++  timestamp: string;
++  reason: string;
++  previousValue?: string;
++  newValue?: string;
++}
++
++export interface AppNotification {
++  notificationId: string;
++  recipientUserId: string;
++  transactionId?: string;
++  title: string;
++  titleAr: string;
++  body: string;
++  bodyAr: string;
++  createdAt: string;
++  read: boolean;
++  type: string;
++}
++
++export interface LiveMarketData {
++  symbol: string;
++  tickerSymbol?: string;
++  name: string;
++  nameAr?: string;
++  price: number;
++  bidPrice?: number;
++  askPrice?: number;
++  spread?: number;
++  change24h: number;
++  change24hAmount?: number;
++  high24h?: number;
++  low24h?: number;
++  volume24h?: number;
++  lastUpdated: string;
++  isLive: boolean;
++  source?: string;
++}
++
++export interface Conversation {
++  conversationId: string;
++  participantIds: string[];
++  participantNames: Record<string, string>;
++  lastMessageText: string;
++  lastMessageAt: string;
++  updatedAt: string;
++}
++
++export interface ChatMessage {
++  messageId: string;
++  conversationId: string;
++  senderUserId: string;
++  senderUsername: string;
++  receiverUserId: string;
++  text: string;
++  createdAt: string;
++  read: boolean;
++}
+diff --git a/src/utils/formatters.ts b/src/utils/formatters.ts
+new file mode 100644
+index 0000000..201cb51
+--- /dev/null
++++ b/src/utils/formatters.ts
+@@ -0,0 +1,151 @@
++/**
++ * Utility formatting functions for Trust Wallet Pro
++ */
++
++/**
++ * Format currency amount as USD string with standard decimals
++ */
++export function formatCurrency(amount: number | string | undefined | null, currency: string = 'USD'): string {
++  const num = typeof amount === 'string' ? parseFloat(amount) : Number(amount ?? 0);
++  if (isNaN(num)) return '$0.00';
++
++  return new Intl.NumberFormat('en-US', {
++    style: 'currency',
++    currency: currency,
++    minimumFractionDigits: 2,
++    maximumFractionDigits: 2,
++  }).format(num);
++}
++
++/**
++ * Format general numbers with localized formatting
++ */
++export function formatNumber(amount: number | string | undefined | null, decimals: number = 2): string {
++  const num = typeof amount === 'string' ? parseFloat(amount) : Number(amount ?? 0);
++  if (isNaN(num)) return '0.00';
++
++  return num.toLocaleString('en-US', {
++    minimumFractionDigits: decimals,
++    maximumFractionDigits: decimals,
++  });
++}
++
++/**
++ * Format crypto token amounts with appropriate precision
++ */
++export function formatCryptoAmount(amount: number | string | undefined | null, symbol?: string, maxDecimals: number = 6): string {
++  const num = typeof amount === 'string' ? parseFloat(amount) : Number(amount ?? 0);
++  if (isNaN(num)) return `0${symbol ? ` ${symbol}` : ''}`;
++
++  let formatted: string;
++  if (num === 0) {
++    formatted = '0.00';
++  } else if (Math.abs(num) < 0.0001) {
++    formatted = num.toFixed(maxDecimals);
++  } else if (Math.abs(num) < 1) {
++    formatted = num.toFixed(4);
++  } else {
++    formatted = num.toLocaleString('en-US', {
++      minimumFractionDigits: 2,
++      maximumFractionDigits: 4,
++    });
++  }
++
++  return symbol ? `${formatted} ${symbol}` : formatted;
++}
++
++/**
++ * Shorten wallet hex address (e.g. 0x1234...5678)
++ */
++export function shortenAddress(address?: string | null, prefixChars: number = 6, suffixChars: number = 4): string {
++  if (!address) return '';
++  if (address.length <= prefixChars + suffixChars + 2) return address;
++  return `${address.substring(0, prefixChars)}...${address.substring(address.length - suffixChars)}`;
++}
++
++/**
++ * Format date string into human readable Arabic or English datetime
++ */
++export function formatDateTime(dateInput?: string | number | Date | null, isArabic: boolean = true): string {
++  if (!dateInput) return '-';
++  try {
++    const date = new Date(dateInput);
++    if (isNaN(date.getTime())) return String(dateInput);
++
++    if (isArabic) {
++      return date.toLocaleDateString('ar-EG', {
++        month: 'short',
++        day: 'numeric',
++        hour: '2-digit',
++        minute: '2-digit',
++      });
++    }
++
++    return date.toLocaleDateString('en-US', {
++      month: 'short',
++      day: 'numeric',
++      hour: '2-digit',
++      minute: '2-digit',
++    });
++  } catch {
++    return String(dateInput);
++  }
++}
++
++/**
++ * Format date only (YYYY-MM-DD or localized)
++ */
++export function formatDate(dateInput?: string | number | Date | null, isArabic: boolean = false): string {
++  if (!dateInput) return '-';
++  try {
++    const date = new Date(dateInput);
++    if (isNaN(date.getTime())) return String(dateInput);
++
++    if (isArabic) {
++      return date.toLocaleDateString('ar-EG', {
++        year: 'numeric',
++        month: 'short',
++        day: 'numeric',
++      });
++    }
++
++    return date.toLocaleDateString('en-US', {
++      year: 'numeric',
++      month: 'short',
++      day: 'numeric',
++    });
++  } catch {
++    return String(dateInput);
++  }
++}
++
++/**
++ * Format percentage with + / - sign
++ */
++export function formatPercent(value: number | string | undefined | null, includeSign: boolean = true): string {
++  const num = typeof value === 'string' ? parseFloat(value) : Number(value ?? 0);
++  if (isNaN(num)) return '0.00%';
++
++  const formatted = Math.abs(num).toFixed(2) + '%';
++  if (!includeSign) return formatted;
++  return (num >= 0 ? '+' : '-') + formatted;
++}
++
++/**
++ * Format remaining countdown milliseconds to HH:MM:SS or MM:SS
++ */
++export function formatCountdown(remainingMs: number): string {
++  if (remainingMs <= 0) return '00:00:00';
++
++  const totalSeconds = Math.floor(remainingMs / 1000);
++  const hours = Math.floor(totalSeconds / 3600);
++  const minutes = Math.floor((totalSeconds % 3600) / 60);
++  const seconds = totalSeconds % 60;
++
++  const pad = (n: number) => n.toString().padStart(2, '0');
++
++  if (hours > 0) {
++    return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
++  }
++  return `${pad(minutes)}:${pad(seconds)}`;
++}
+-- 
+2.34.1
+
