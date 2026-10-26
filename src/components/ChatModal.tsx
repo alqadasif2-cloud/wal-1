@@ -39,7 +39,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
 
   // Subscribe to user conversations
   useEffect(() => {
-    const unsub = ChatService.subscribeToUserConversations(currentUser.userId, (convs) => {
+    const unsub = ChatService.subscribeToUserConversations(currentUser.userId, (convs: Conversation[]) => {
       setConversations(convs);
     });
     return () => unsub();
@@ -56,7 +56,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
   useEffect(() => {
     if (!activeConversation) return;
 
-    const unsub = ChatService.subscribeToMessages(activeConversation.conversationId, (msgs) => {
+    const unsub = ChatService.subscribeToMessages(activeConversation.conversationId, (msgs: ChatMessage[]) => {
       setMessages(msgs);
     });
 

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { User, Wallet, Transaction, AppNotification } from './types/wallet';
+import { User, Wallet, Transaction, AppNotification, LiveMarketData } from './types/wallet';
 import { WalletDatabase } from './services/walletDb';
 import { WalletCloudService } from './services/walletCloudService';
 import { marketPriceService } from './services/marketPriceService';
@@ -124,7 +124,7 @@ export default function App() {
     // Reconcile incoming transactions immediately
     WalletDatabase.reconcileUserIncomingTransactions(currentUser.userId);
 
-    const unsubTxs = WalletCloudService.subscribeUserTransactions(currentUser.userId, (cloudTxs) => {
+    const unsubTxs = WalletCloudService.subscribeUserTransactions(currentUser.userId, (cloudTxs: Transaction[]) => {
       // Reconcile if new incoming transactions were detected
       WalletDatabase.reconcileUserIncomingTransactions(currentUser.userId);
       setTransactions(cloudTxs);
@@ -134,7 +134,7 @@ export default function App() {
       if (freshWallet) setWallet(freshWallet);
     });
 
-    const unsubNotifs = WalletCloudService.subscribeUserNotifications(currentUser.userId, (cloudNotifs) => {
+    const unsubNotifs = WalletCloudService.subscribeUserNotifications(currentUser.userId, (cloudNotifs: AppNotification[]) => {
       setNotifications(cloudNotifs);
     });
 
@@ -146,7 +146,7 @@ export default function App() {
 
   // Subscribe to Live Market Prices Feed
   useEffect(() => {
-    const unsubscribe = marketPriceService.subscribe((prices, isConnected) => {
+    const unsubscribe = marketPriceService.subscribe((prices: Record<string, LiveMarketData>, isConnected: boolean) => {
       setIsFeedLive(isConnected);
 
       const btcPrice = prices['BTC'];
